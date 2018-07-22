@@ -1,7 +1,17 @@
 const WebSocket = require('ws').Server;
 const uuid = require('uuid/v1');
 
+const _ = require('lodash');
+
 const MESSAGES = require('./messages');
+
+function log (id, data) {
+    data = _.omit(data, 'signal')
+    console.log ('*****');
+    console.log ('RECEIVED FROM ', id);
+    for (let i in data)
+        console.log(i, ' : ', data [i]);
+}
 
 const ws = new WebSocket({
     port: 8000,
@@ -26,10 +36,10 @@ ws.on('connection', socket => {
     console.log('Connected: ', socket.id);
 
     socket.on('message', data => {
-        console.log ('UUID: ', socket.id, ' ~ DATA: ', data);
-
+        console.log('RECEIVED TEXT: ', data);
         // parse string
         data = JSON.parse(data);
+        log(socket.name ? socket.name : socket.id, data);
 
         switch (data.type) {
             case 'name':
@@ -45,14 +55,14 @@ ws.on('connection', socket => {
             case 'signal':
                 let receiver = Array.from (ws.clients).find(e => e.id == data.to);
                 if (receiver) {
-                    receiver.send(MESSAGES.signal(data.signal));
+                    receiver.send(MESSAGES.signal(data.signal, socket.id));
                 } else {
                     socket.send(MESSAGES.error(404, 'No receiver with such ID found.'));
                 }
             break;
 
             default:
-                socket.send(MESSAGES.error(400, 'Bad Type.'));
+                socket.send(MESSAGES.error(400, `BadType: ${data.type}`));
         }
     });
 

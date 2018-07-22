@@ -30,6 +30,20 @@ class App extends Component {
   }
 
   // * helpers
+
+  createdDescription = (description, to) => {
+    const peer = this.props.peerConnection;
+    const socket = this.props.serverConnection;
+
+    peer.setLocalDescription(description).then(function() {
+      socket.send({
+        type: 'signal',
+        sdp: peer.localDescription,
+        to,
+      });
+    }).catch(this.errorHandler);
+  }
+
   setStreams = _ => {
     let localVideo = this.state.localVideoRef.current;
     if (localVideo.srcObject !== this.props.localStream)
@@ -43,33 +57,25 @@ class App extends Component {
   startServerConnection = _ => {
     const socket = new SignalConnection('ws://localhost:8000/');
 
-    const peer = this.props.peerConnection;
-
     socket.on('list', ({ list }) => {
       this.props.dispatch(sessionActions.SET_LIST(list));
     });
 
-    socket.on('signal', ({ signal }) => {
-      if (signal.ice) {
-        peer.addIceCandidate(new RTCIceCandidate(signal.ice))
+    socket.on('signal', ({ ice, sdp, from }) => {
+      const peer = this.props.peerConnection;
+
+      if (ice) {
+        peer.addIceCandidate(new RTCIceCandidate(ice))
           .catch(this.errorHandler);
       }
-      else if (signal.sdp) {
-        // Description!
-        peer.setRemoteDescription(new RTCSessionDescription(signal.sdp))
+      else if (sdp) {
+        peer.setRemoteDescription(new RTCSessionDescription(sdp))
         .then(_ => {
-          if(signal.sdp.type === 'offer') { // Only create answers in response to offers
+          if(sdp.type === 'offer') { // Only create answers in response to offers
             peer.createAnswer()
             .then(description => {
-              peer.setLocalDescription(description)
-                .then(_ => {
-                  socket.send({
-                    type: 'signal',
-                    signal: peer.localDescription,
-                    to: this.props.to,
-                  })
-                  .catch(this.errorHandler);
-                })
+              this.props.dispatch(sessionActions.SET_FROM(from));
+              this.createdDescription(description, from);
             })
             .catch(this.errorHandler);
           }
@@ -86,13 +92,18 @@ class App extends Component {
     
     peer.onicecandidate = ice => {
       if(ice.candidate) {
-        this.props.serverConnection.send(JSON.stringify({type: 'signal', ice: ice.candidate, to: this.props.to}));
+        this.props.serverConnection.send({type: 'signal', ice: ice.candidate, to: this.props.to});
       }
     };
 
     peer.ontrack = track => {
+      alert('GOT REMOTE STREAM');
       this.props.dispatch(sessionActions.SET_REMOTE_STREAM(track));
     };
+
+    peer.createOffer()
+      .then(description => this.createdDescription(description, this.props.to))
+      .catch(this.errorHandler);
 
     this.props.dispatch(sessionActions.SET_PEER(peer));
   }
@@ -101,11 +112,12 @@ class App extends Component {
     if (navigator.mediaDevices.getUserMedia) {
       // Get the stream.
       navigator.mediaDevices.getUserMedia(videoConstrains)
-        .then((stream) => {
+        .then(stream => {
           this.props.dispatch (dispatch => {
             let tracks = stream.getTracks();
             for (let t of tracks)
               this.props.peerConnection.addTrack(t);
+
             dispatch(sessionActions.SET_LOCAL_STREAM(stream));
           });
         })
@@ -129,6 +141,10 @@ class App extends Component {
 
   componentDidUpdate = _ => {
     this.setStreams();
+
+    if (this.props.to || this.props.from) {
+      this.startPeer();
+    }
   };
 
   // * subcomponents
