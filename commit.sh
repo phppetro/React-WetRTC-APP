@@ -4,7 +4,7 @@ Y=2018
 M=7
 D=26
 i=21
-comment="Small structure update"
+comment="Added HTTP server for Heroku deployment"
 
 export GIT_COMMITTER_DATE="$Y-$M-$D 10:$i:34"
 export GIT_AUTHOR_DATE="$Y-$M-$D 10:$i:34"
